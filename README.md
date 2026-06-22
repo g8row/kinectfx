@@ -32,37 +32,64 @@ Live samples from a Kinect v1 (in `docs/samples/`): Depth Mesh and Relief Light:
 - Modern dark Qt theme (no Swift/native code needed).
 - Outputs to a **virtual camera** that Discord can use.
 
-## Requirements
+## Install & run
 
-- macOS on Apple Silicon, [Homebrew](https://brew.sh).
-- A Kinect v1 (model 1414/1473) + its USB/power adapter.
-- OBS 30+ (installed by `setup.sh`) — provides the macOS virtual-camera backend.
+Cross-platform: **macOS, Windows, Linux**. You need a Kinect v1 (model
+1414/1473) with its USB/power adapter, and OBS Studio for the virtual camera.
 
-## Install
+### macOS
 
 ```bash
-./setup.sh
+./setup.sh          # installs libfreenect + libusb + OBS, creates .venv, pip installs
 ```
 
-This installs `libfreenect` + `libusb`, installs OBS, creates a `.venv`, and
-installs the Python deps.
-
-> **One-time:** open OBS, click **Start Virtual Camera** once (this registers the
-> macOS virtual-camera system plugin), then quit OBS.
-
-## Run
+> **One-time:** open OBS, click **Start Virtual Camera**, approve the system
+> extension in System Settings, then quit OBS.
 
 ```bash
 ./run.sh
 ```
 
-1. Pick a **Source** (IR is the fun one) and an **Effect**.
-2. Tweak the sliders.
-3. Click **Start Virtual Camera**.
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File setup.ps1   # creates .venv, installs Python deps
+```
+
+Then two one-time manual steps (see the script output for detail):
+
+1. **Kinect driver + libfreenect** — install the **libusbK** driver for the
+   *Xbox NUI Camera / Motor / Audio* devices using [Zadig](https://zadig.akeo.ie),
+   then drop `freenect_sync.dll` and its deps (`freenect.dll`, `libusb-1.0.dll`,
+   `pthreadVC2.dll`) into a `libs\` folder here (or point `KINECTFX_LIB_DIR` at
+   them). These come from a libfreenect Windows build (CMake + libusb).
+2. **Virtual camera** — install OBS Studio, run it once, click **Start Virtual
+   Camera** (registers *OBS Virtual Camera*), then quit OBS.
+
+```bat
+run.bat
+```
+
+### Linux
+
+Install `libfreenect` (e.g. `sudo apt install freenect`) and load
+`v4l2loopback` for the virtual camera, create a venv and `pip install -r
+requirements.txt`, then `python main.py`.
+
+### Then, on any platform
+
+1. Pick a **Source** and an **Effect** (depth effects auto-select the Depth source).
+2. Tweak the sliders; on 3D effects, **drag the preview to orbit, scroll to zoom**.
+3. Click **Start Virtual Camera** (OBS must *not* be running its own virtual camera).
 4. In **Discord → Settings → Voice & Video → Camera**, select **OBS Virtual Camera**.
 
-If the Kinect or `libfreenect` isn't found, the app falls back to an animated
-synthetic source so you can still explore the effects.
+If the Kinect or its library isn't found, the app falls back to an animated
+synthetic source so you can still explore the effects and the virtual-camera path.
+
+#### Library overrides (env vars)
+
+- `KINECTFX_FREENECT` — full path to the `freenect_sync` library
+- `KINECTFX_LIB_DIR` — directory containing it (and its dependent DLLs/.so)
 
 ## How it works
 

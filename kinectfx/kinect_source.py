@@ -1,9 +1,9 @@
 """
 Kinect v1 (Xbox 360) capture via ctypes bindings to libfreenect's *sync* API.
 
-We deliberately avoid the Cython `freenect` module (painful to build on Apple
-Silicon) and instead bind the stable C functions exported by
-`libfreenect_sync`:
+Works on macOS, Windows and Linux: we locate the platform's freenect_sync
+library (.dylib / .dll / .so) and bind its stable C functions via ctypes,
+avoiding the Cython `freenect` module (painful to build everywhere):
 
     int  freenect_sync_get_video(void **video, uint32_t *ts, int idx, int fmt);
     int  freenect_sync_get_depth(void **depth, uint32_t *ts, int idx, int fmt);
@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import os
+import sys
 import time
 from dataclasses import dataclass
 
@@ -41,22 +43,67 @@ WIDTH, HEIGHT = 640, 480
 RETRIES = 8
 RETRY_DELAY = 0.05
 
-# Candidate library paths (Homebrew arm64, Homebrew intel, system).
-_CANDIDATES = [
-    "/opt/homebrew/lib/libfreenect_sync.dylib",
-    "/opt/homebrew/lib/libfreenect_sync.0.dylib",
-    "/usr/local/lib/libfreenect_sync.dylib",
-    "/usr/local/lib/libfreenect_sync.0.dylib",
-    "libfreenect_sync.dylib",
-    "libfreenect_sync.so.0",
-]
+# Override hooks (any platform):
+#   KINECTFX_FREENECT  full path to the freenect_sync library
+#   KINECTFX_LIB_DIR   directory holding the library + its dependent DLLs/.so
+_ENV_LIB = "KINECTFX_FREENECT"
+_ENV_LIBDIR = "KINECTFX_LIB_DIR"
+
+
+def _candidate_names():
+    """Platform-specific library file names / well-known locations."""
+    if sys.platform == "win32":
+        return ["freenect_sync.dll", "libfreenect_sync.dll"]
+    if sys.platform == "darwin":
+        return [
+            "/opt/homebrew/lib/libfreenect_sync.dylib",  # Homebrew (Apple Silicon)
+            "/opt/homebrew/lib/libfreenect_sync.0.dylib",
+            "/usr/local/lib/libfreenect_sync.dylib",      # Homebrew (Intel)
+            "/usr/local/lib/libfreenect_sync.0.dylib",
+            "libfreenect_sync.dylib",
+        ]
+    return [  # Linux / other
+        "libfreenect_sync.so",
+        "libfreenect_sync.so.0",
+        "libfreenect_sync.so.0.7",
+        "/usr/local/lib/libfreenect_sync.so",
+        "/usr/lib/libfreenect_sync.so",
+    ]
+
+
+def _extra_dirs():
+    """Directories to search for the library and (on Windows) its deps."""
+    dirs = []
+    if os.environ.get(_ENV_LIBDIR):
+        dirs.append(os.environ[_ENV_LIBDIR])
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dirs.append(os.path.join(repo, "libs"))  # bundle DLLs/.so here if you like
+    return [d for d in dirs if os.path.isdir(d)]
 
 
 def _load_library():
+    # On Windows, dependent DLLs (libusb-1.0.dll, freenect.dll, pthread*.dll)
+    # must be discoverable; register our extra dirs with the DLL loader.
+    if sys.platform == "win32":
+        for d in _extra_dirs():
+            try:
+                os.add_dll_directory(d)
+            except (OSError, AttributeError):
+                pass
+
+    candidates = []
+    if os.environ.get(_ENV_LIB):
+        candidates.append(os.environ[_ENV_LIB])
     found = ctypes.util.find_library("freenect_sync")
     if found:
-        _CANDIDATES.insert(0, found)
-    for path in _CANDIDATES:
+        candidates.append(found)
+    candidates += _candidate_names()
+    for d in _extra_dirs():  # explicit name-in-dir combos
+        for name in _candidate_names():
+            if not os.path.isabs(name):
+                candidates.append(os.path.join(d, name))
+
+    for path in candidates:
         try:
             return ctypes.CDLL(path)
         except OSError:
